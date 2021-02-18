@@ -31,8 +31,6 @@ class TransactionHistoryController extends Controller
             'wallets' => $walletCount,
             'totalBalance' => $balance,
             'totalTransaction' =>  $totalTransactionAmount]);
-            
-
     }
     /**
      * Store a newly created resource in storage.

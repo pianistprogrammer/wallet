@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\TransactionHistory;
 use App\Models\Wallet;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class WalletController extends Controller
@@ -34,43 +35,51 @@ class WalletController extends Controller
 
     public function creditWallet(Wallet $walletId)
     {
-        $amount = request('amount');
-        $receiverWalletId = request('receiverWalletId');
-        $senderWalletId = request('senderWalletId');
+        DB::beginTransaction();
+        try {
+            $amount = request('amount');
+            $receiverWalletId = request('receiverWalletId');
+            $senderWalletId = request('senderWalletId');
 
-        if ($senderWalletId === $receiverWalletId) {
-            return response()->json(['data' => false, "message" => "Wallet account is the same"]);
-        }
-        // deduct amount from wallet first
-        $senderWallet = Wallet::where('wallet_long_id', $senderWalletId)->first();
-        $wallet_balance = $senderWallet->balance;
-        if ($wallet_balance > $amount) {
-            $senderbalance = $wallet_balance - $amount;
-            $senderWallet->update(['balance' => $senderbalance]);
+            if ($senderWalletId === $receiverWalletId) {
+                return response()->json(['data' => false, "message" => "Wallet account is the same"]);
+            }
+            // deduct amount from wallet first
+            $senderWallet = Wallet::where('wallet_long_id', $senderWalletId)->first();
+            $wallet_balance = $senderWallet->balance;
+            if ($wallet_balance > $amount) {
+                $senderbalance = $wallet_balance - $amount;
+                $senderWallet->update(['balance' => $senderbalance]);
+                TransactionHistory::create([
+                    'ref' => Str::uuid()->toString(),
+                    'amount' => $amount,
+                    'status' => "Wallet Deducted",
+                    'user_id' => $senderWallet->user_id,
+                    'wallet_id' => $senderWallet->id,
+                ]);
+            } else {
+                return response()->json(['data' => false, "message" => "Insufficient balance in wallet"]);
+            }
+            // credit the receiver wallet
+            $receiverWallet = Wallet::where('wallet_long_id', $receiverWalletId)->first();
+            $wallet_balance = $receiverWallet->balance;
+            $receiverbalance = $wallet_balance + $amount;
+            $receiverWallet->update(['balance' => $receiverbalance]);
             TransactionHistory::create([
                 'ref' => Str::uuid()->toString(),
                 'amount' => $amount,
-                'status' => "Wallet Deducted",
-                'user_id' => $senderWallet->user_id,
-                'wallet_id' => $senderWallet->id,
+                'status' => "Wallet Credited",
+                'user_id' => $receiverWallet->user_id,
+                'wallet_id' => $receiverWallet->id,
             ]);
-        } else {
-            return response()->json(['data' => false, "message" => "Insufficient balance in wallet"]);
-        }
-        // credit the receiver wallet
-        $receiverWallet = Wallet::where('wallet_long_id', $receiverWalletId)->first();
-        $wallet_balance = $receiverWallet->balance;
-        $receiverbalance = $wallet_balance + $amount;
-        $receiverWallet->update(['balance' => $receiverbalance]);
-        TransactionHistory::create([
-            'ref' => Str::uuid()->toString(),
-            'amount' => $amount,
-            'status' => "Wallet Credited",
-            'user_id' => $receiverWallet->user_id,
-            'wallet_id' => $receiverWallet->id,
-        ]);
+            DB::commit();
+            return response()->json(["balance" => $senderbalance, "message" => "Wallet credited successfully"]);
 
-        return response()->json(["balance" => $senderbalance, "message" => "Wallet credited successfully"]);
+        } catch (Exception $e) {
+            DB::rollback();
+            return response()->json(["data" => false, "message" => "An error occured while funding wallet" + $e]);
+        }
+
     }
     /**
      * Display the specified resource.
